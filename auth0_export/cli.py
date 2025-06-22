@@ -264,6 +264,7 @@ def display_user_table(user_data: dict):
     if organizations:
         orgs_table = Table(title="🏢 Organization Memberships", show_header=True, header_style="bold green")
         orgs_table.add_column("Organization", style="green")
+        orgs_table.add_column("Organization ID", style="dim")
         orgs_table.add_column("Display Name", style="bright_green")
         orgs_table.add_column("Roles", style="cyan")
         orgs_table.add_column("Metadata", style="dim")
@@ -277,6 +278,7 @@ def display_user_table(user_data: dict):
             
             orgs_table.add_row(
                 org.get('name', 'N/A'),
+                org.get('id', 'N/A'),
                 org.get('display_name', 'N/A'),
                 role_names,
                 metadata_str[:50] + '...' if len(metadata_str) > 50 else metadata_str
@@ -318,13 +320,15 @@ def display_user_table(user_data: dict):
 @click.option('--org-id', help='Organization ID for role and organization operations')
 @click.option('--list-roles', is_flag=True, help='List all available roles in the tenant')
 @click.option('--list-orgs', is_flag=True, help='List all available organizations in the tenant')
+@click.option('--debug-org-roles', help='Debug org roles for specific user ID and org ID (format: user_id,org_id)')
+@click.option('--debug-api-methods', is_flag=True, help='Show available API methods for debugging')
 @click.version_option(version="0.1.0", prog_name="auth0-export")
 def main(output: Optional[str], rate_limit: Optional[int], setup: bool, quiet: bool, 
          user_id: Optional[str], email: Optional[str], format: str, json_pretty: bool, env: Optional[str],
          assign_global_role: Optional[str], assign_org_role: Optional[str], 
          remove_global_role: Optional[str], remove_org_role: Optional[str],
          assign_to_org: bool, remove_from_org: bool, users_file: Optional[str],
-         org_id: Optional[str], list_roles: bool, list_orgs: bool):
+         org_id: Optional[str], list_roles: bool, list_orgs: bool, debug_org_roles: Optional[str], debug_api_methods: bool):
     """
     🚀 Export Auth0 users, organizations, and roles to Excel/JSON.
     
@@ -453,6 +457,65 @@ def main(output: Optional[str], rate_limit: Optional[int], setup: bool, quiet: b
                 console.print(f"\n✅ Found {len(orgs)} organizations total")
             else:
                 console.print("❌ [red]No organizations found or unable to fetch organizations.[/red]")
+            return
+        
+        # Handle debug API methods command
+        if debug_api_methods:
+            console.print("\n🔧 [bold blue]Available Auth0 API Methods:[/bold blue]")
+            
+            # Organizations methods
+            org_methods = [m for m in dir(exporter.auth0.organizations) if not m.startswith('_')]
+            console.print(f"\n📋 [bold yellow]Organizations methods ({len(org_methods)}):[/bold yellow]")
+            for method in sorted(org_methods):
+                console.print(f"   • {method}")
+            
+            # Role-related methods specifically
+            role_methods = [m for m in org_methods if 'role' in m.lower()]
+            console.print(f"\n🎭 [bold magenta]Role-related methods ({len(role_methods)}):[/bold magenta]")
+            for method in sorted(role_methods):
+                console.print(f"   • {method}")
+            
+            return
+        
+        # Handle debug org roles command
+        if debug_org_roles:
+            try:
+                parts = debug_org_roles.split(',')
+                if len(parts) != 2:
+                    console.print("❌ [red]Debug format should be: user_id,org_id[/red]")
+                    sys.exit(1)
+                
+                debug_user_id, debug_org_id = parts[0].strip(), parts[1].strip()
+                console.print(f"\n🔍 [bold yellow]Debugging org roles for user {debug_user_id} in org {debug_org_id}[/bold yellow]")
+                
+                roles = exporter.get_user_organization_roles(debug_user_id, debug_org_id)
+                console.print(f"\n📊 [bold]Results:[/bold] Found {len(roles)} roles")
+                
+                if roles:
+                    roles_table = Table(title="🎭 Organization Roles Debug", show_header=True, header_style="bold yellow")
+                    roles_table.add_column("Role Name", style="yellow")
+                    roles_table.add_column("Role ID", style="dim")
+                    roles_table.add_column("Description", style="white")
+                    
+                    for role in roles:
+                        roles_table.add_row(
+                            role.get('name', 'N/A'),
+                            role.get('id', 'N/A'),
+                            role.get('description', 'No description')[:60] + ('...' if len(role.get('description', '')) > 60 else '')
+                        )
+                    
+                    console.print(roles_table)
+                    
+                    # Show raw data
+                    console.print(f"\n📄 [bold]Raw API Response:[/bold]")
+                    from rich.json import JSON
+                    json_display = JSON.from_data(roles)
+                    console.print(json_display)
+                else:
+                    console.print("❌ [red]No roles found or API call failed.[/red]")
+                
+            except Exception as e:
+                console.print(f"❌ [red]Debug failed: {e}[/red]")
             return
         
         # Handle organization management actions

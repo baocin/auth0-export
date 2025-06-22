@@ -174,6 +174,7 @@ class Auth0Exporter:
         org_data = []
         for org in orgs:
             org_roles = self.get_user_organization_roles(user_id, org['id'])
+            logger.debug(f"Complete data - User {user_id} in org {org.get('name', 'Unknown')}: {len(org_roles)} roles")
             org_info = {
                 'organization': org,
                 'roles': org_roles
@@ -239,24 +240,45 @@ class Auth0Exporter:
     def get_user_organization_roles(self, user_id: str, org_id: str) -> List[Dict[str, Any]]:
         """Get roles for a user within a specific organization"""
         try:
-            # The correct method is all_organization_member_roles
+            # Use the correct method: all_organization_member_roles
+            response = self._retry_with_backoff(
+                self.auth0.organizations.all_organization_member_roles,
+                org_id,
+                user_id
+            )
+            logger.debug(f"all_organization_member_roles successful for org {org_id}, user {user_id}")
+            
+            # Handle response - Auth0 Python SDK typically returns dict with roles key
             roles = []
-            page = 0
-            while True:
-                response = self._retry_with_backoff(
-                    self.auth0.organizations.all_organization_member_roles,
-                    org_id,
-                    user_id,
-                    page=page
-                )
-                if isinstance(response, dict) and 'roles' in response:
-                    roles.extend(response['roles'])
-                    if len(response['roles']) < 50:  # Default page size
-                        break
-                    page += 1
+            logger.debug(f"Response type: {type(response)}")
+            
+            if isinstance(response, dict):
+                if 'roles' in response:
+                    roles = response['roles']
+                    logger.debug(f"Found 'roles' key with {len(roles)} roles")
                 else:
-                    break
+                    logger.debug(f"Response keys: {list(response.keys())}")
+                    # Sometimes the roles are at the root level or with different key
+                    for key in ['data', 'items', 'results']:
+                        if key in response:
+                            roles = response[key]
+                            logger.debug(f"Found '{key}' key with {len(roles)} roles")
+                            break
+                    
+                    # If still no roles found, check if response itself is role data
+                    if not roles and 'id' in response and 'name' in response:
+                        roles = [response]  # Single role response
+                        logger.debug(f"Response appears to be single role")
+            elif isinstance(response, list):
+                roles = response
+                logger.debug(f"Response is direct list with {len(roles)} roles")
+            else:
+                logger.warning(f"Unexpected response format: {type(response)}")
+                roles = []
+            
+            logger.debug(f"Total org roles found for user {user_id} in org {org_id}: {len(roles)}")
             return roles
+            
         except Exception as e:
             logger.error(f"Error fetching roles for user {user_id} in org {org_id}: {e}")
             return []
@@ -355,7 +377,10 @@ class Auth0Exporter:
                     
                     # Get roles within this organization
                     org_roles = self.get_user_organization_roles(user['user_id'], org['id'])
-                    org_data['Organization Roles'] = ', '.join([role.get('name', '') for role in org_roles])
+                    role_names = [role.get('name', '') for role in org_roles if role.get('name')]
+                    org_data['Organization Roles'] = ', '.join(role_names)
+                    
+                    logger.debug(f"User {user.get('email')} in org {org.get('name')}: {len(org_roles)} roles - {role_names}")
                     
                     export_data.append(org_data)
             else:
@@ -495,11 +520,15 @@ class Auth0Exporter:
     def assign_organization_role(self, user_id: str, org_id: str, role_id: str) -> bool:
         """Assign a role to a user within an organization"""
         try:
+            # Use the correct method and payload format: create_organization_member_roles
+            payload = {
+                "roles": [{"id": role_id}]
+            }
             self._retry_with_backoff(
-                self.auth0.organizations.add_organization_member_roles,
+                self.auth0.organizations.create_organization_member_roles,
                 org_id,
                 user_id,
-                [role_id]
+                payload
             )
             logger.info(f"Successfully assigned role {role_id} to user {user_id} in organization {org_id}")
             return True
@@ -524,11 +553,15 @@ class Auth0Exporter:
     def remove_organization_role(self, user_id: str, org_id: str, role_id: str) -> bool:
         """Remove a role from a user within an organization"""
         try:
+            # Use the correct method and payload format: delete_organization_member_roles
+            payload = {
+                "roles": [{"id": role_id}]
+            }
             self._retry_with_backoff(
-                self.auth0.organizations.remove_organization_member_roles,
+                self.auth0.organizations.delete_organization_member_roles,
                 org_id,
                 user_id,
-                [role_id]
+                payload
             )
             logger.info(f"Successfully removed role {role_id} from user {user_id} in organization {org_id}")
             return True
@@ -563,10 +596,15 @@ class Auth0Exporter:
     def assign_user_to_organization(self, user_id: str, org_id: str) -> bool:
         """Assign a user to an organization"""
         try:
+            # Use the correct method and payload format: create_organization_members
+            # Auth0 Management API expects members as an array of user ID strings
+            payload = {
+                "members": [user_id]
+            }
             self._retry_with_backoff(
-                self.auth0.organizations.add_organization_members,
+                self.auth0.organizations.create_organization_members,
                 org_id,
-                [user_id]
+                payload
             )
             logger.info(f"Successfully assigned user {user_id} to organization {org_id}")
             return True
@@ -577,10 +615,14 @@ class Auth0Exporter:
     def remove_user_from_organization(self, user_id: str, org_id: str) -> bool:
         """Remove a user from an organization"""
         try:
+            # Use the correct method and payload format: delete_organization_members
+            payload = {
+                "members": [user_id]
+            }
             self._retry_with_backoff(
                 self.auth0.organizations.delete_organization_members,
                 org_id,
-                [user_id]
+                payload
             )
             logger.info(f"Successfully removed user {user_id} from organization {org_id}")
             return True
