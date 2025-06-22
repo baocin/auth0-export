@@ -24,7 +24,7 @@ dependencies = [
     "pandas>=2.0.0",
     "openpyxl>=3.1.0",
     "auth0-python>=4.7.0",
-    "blessings>=1.7",
+    "blessings>=1.7; sys_platform != 'win32'",
     "click>=8.1.0",
     "rich>=13.0.0",
 ]

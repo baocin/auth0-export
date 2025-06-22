@@ -30,6 +30,32 @@ def create_spec_file():
     else:
         exe_name = "auth0-export-linux"
     
+    # Platform-specific hidden imports
+    hidden_imports = [
+        'auth0_export.cli',
+        'auth0_export.exporter',
+        'auth0.authentication',
+        'auth0.management',
+        'pandas',
+        'openpyxl',
+        'rich',
+        'click',
+        'dotenv',
+        'logging',
+        'json',
+        'time',
+        'datetime',
+        'pathlib',
+        'typing',
+        'os',
+        'sys',
+        'random',
+    ]
+    
+    # Only add blessings on non-Windows platforms
+    if system != "windows":
+        hidden_imports.append('blessings')
+    
     spec_content = f'''# -*- mode: python ; coding: utf-8 -*-
 import sys
 from pathlib import Path
@@ -46,27 +72,7 @@ a = Analysis(
     datas=[
         ('auth0_export/*.py', 'auth0_export'),
     ],
-    hiddenimports=[
-        'auth0_export.cli',
-        'auth0_export.exporter',
-        'auth0.authentication',
-        'auth0.management',
-        'pandas',
-        'openpyxl',
-        'rich',
-        'blessings',
-        'click',
-        'dotenv',
-        'logging',
-        'json',
-        'time',
-        'datetime',
-        'pathlib',
-        'typing',
-        'os',
-        'sys',
-        'random',
-    ],
+    hiddenimports={hidden_imports},
     hookspath=[],
     hooksconfig={{}},
     runtime_hooks=[],

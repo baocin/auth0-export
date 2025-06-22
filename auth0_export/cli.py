@@ -10,7 +10,15 @@ from pathlib import Path
 from typing import Optional, List
 
 import click
-from blessings import Terminal
+try:
+    from blessings import Terminal
+    term = Terminal()
+except ImportError:
+    # Fallback for Windows where curses is not available
+    class MockTerminal:
+        def __getattr__(self, name):
+            return ""
+    term = MockTerminal()
 from rich.console import Console
 from rich.panel import Panel
 from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TimeElapsedColumn
@@ -20,10 +28,13 @@ from rich.prompt import Prompt, Confirm
 from rich.syntax import Syntax
 from rich.json import JSON
 
-from .exporter import Auth0Exporter
+try:
+    from .exporter import Auth0Exporter
+except ImportError:
+    # Fallback for PyInstaller builds
+    from auth0_export.exporter import Auth0Exporter
 
-# Initialize terminal and console
-term = Terminal()
+# Initialize console
 console = Console()
 
 def print_banner():
