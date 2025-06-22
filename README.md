@@ -8,8 +8,7 @@ A beautiful CLI tool to export Auth0 users, organizations, and roles to Excel/JS
 # Run directly from GitHub (no installation required)
 uvx --from git+https://github.com/baocin/auth0-export auth0-export
 ```
-
-![CLI Demo](https://via.placeholder.com/800x400/1e1e2e/cdd6f4?text=Auth0+Export+CLI)
+<img width="982" alt="Untitled 3" src="https://github.com/user-attachments/assets/212ff27e-7d00-4569-bbe4-e132ed37a00f" />
 
 ## 🏃‍♂️ **Alternative Quick Start (if you don't have uv installed)**
 
