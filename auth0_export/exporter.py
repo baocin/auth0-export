@@ -559,6 +559,58 @@ class Auth0Exporter:
         except Exception as e:
             logger.error(f"Error fetching available roles: {e}")
             return []
+    
+    def assign_user_to_organization(self, user_id: str, org_id: str) -> bool:
+        """Assign a user to an organization"""
+        try:
+            self._retry_with_backoff(
+                self.auth0.organizations.add_organization_members,
+                org_id,
+                [user_id]
+            )
+            logger.info(f"Successfully assigned user {user_id} to organization {org_id}")
+            return True
+        except Exception as e:
+            logger.error(f"Error assigning user {user_id} to organization {org_id}: {e}")
+            return False
+    
+    def remove_user_from_organization(self, user_id: str, org_id: str) -> bool:
+        """Remove a user from an organization"""
+        try:
+            self._retry_with_backoff(
+                self.auth0.organizations.delete_organization_members,
+                org_id,
+                [user_id]
+            )
+            logger.info(f"Successfully removed user {user_id} from organization {org_id}")
+            return True
+        except Exception as e:
+            logger.error(f"Error removing user {user_id} from organization {org_id}: {e}")
+            return False
+    
+    def get_available_organizations(self) -> List[Dict[str, Any]]:
+        """Get all available organizations in the tenant"""
+        try:
+            orgs = []
+            page = 0
+            per_page = 100
+            
+            while True:
+                batch = self._retry_with_backoff(
+                    self.auth0.organizations.list_organizations,
+                    page=page,
+                    per_page=per_page
+                )
+                if not batch.get('organizations'):
+                    break
+                orgs.extend(batch['organizations'])
+                page += 1
+                
+            logger.info(f"Found {len(orgs)} available organizations")
+            return orgs
+        except Exception as e:
+            logger.error(f"Error fetching available organizations: {e}")
+            return []
 
 def main():
     try:

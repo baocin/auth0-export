@@ -10,6 +10,31 @@ uvx --from git+https://github.com/baocin/auth0-export auth0-export
 ```
 <img width="982" alt="Untitled 3" src="https://github.com/user-attachments/assets/212ff27e-7d00-4569-bbe4-e132ed37a00f" />
 
+## 📥 **Standalone Executables (No Python Required)**
+
+Download pre-built binaries for your platform:
+
+```bash
+# macOS (Intel/Apple Silicon)
+curl -L -o auth0-export-macos.tar.gz https://github.com/baocin/auth0-export/releases/latest/download/auth0-export-macos-x64.tar.gz
+tar -xzf auth0-export-macos.tar.gz
+chmod +x auth0-export-macos
+./auth0-export-macos --help
+
+# Linux (x64)
+curl -L -o auth0-export-linux.tar.gz https://github.com/baocin/auth0-export/releases/latest/download/auth0-export-linux-x64.tar.gz
+tar -xzf auth0-export-linux.tar.gz
+chmod +x auth0-export-linux
+./auth0-export-linux --help
+
+# Windows (x64) - PowerShell
+Invoke-WebRequest -Uri "https://github.com/baocin/auth0-export/releases/latest/download/auth0-export-windows-x64.exe.zip" -OutFile "auth0-export-windows.zip"
+Expand-Archive -Path "auth0-export-windows.zip" -DestinationPath "."
+.\auth0-export-windows.exe --help
+```
+
+**Or download from:** [🚀 GitHub Releases](https://github.com/baocin/auth0-export/releases/latest)
+
 ## 🏃‍♂️ **Alternative Quick Start (if you don't have uv installed)**
 
 ```bash
@@ -59,7 +84,9 @@ uv run auth0-export --format json
 - **🎨 Beautiful CLI** with colors, progress bars, and interactive prompts
 - **👤 Single User Queries** by Auth0 ID or email address
 - **🎭 Role Management** - assign/remove global and organization roles
-- **📋 Role Discovery** - list all available roles in your tenant
+- **🏢 Organization Management** - assign/remove users to/from organizations
+- **📋 Discovery Tools** - list all available roles and organizations in your tenant
+- **📂 Bulk Operations** - process multiple users from file for role/organization management
 - **📊 Beautiful Table Display** for user information and organization data
 - **📄 JSON Export** for full exports or individual users
 - **⚡ Smart Rate Limiting** with exponential backoff and jitter
@@ -124,6 +151,18 @@ auth0-export --email "user@example.com" --remove-global-role "rol_abcd1234"
 # Remove organization role from user
 auth0-export --user-id "auth0|123..." --remove-org-role "rol_efgh5678" --org-id "org_xyz9876"
 
+# Assign user to organization
+auth0-export --email "user@example.com" --assign-to-org --org-id "org_xyz9876"
+
+# Remove user from organization  
+auth0-export --user-id "auth0|123..." --remove-from-org --org-id "org_xyz9876"
+
+# Bulk assign users to organization from file
+auth0-export --users-file users.txt --assign-to-org --org-id "org_xyz9876"
+
+# Bulk assign role to multiple users
+auth0-export --users-file users.txt --assign-global-role "rol_abcd1234"
+
 # Check user's roles after modification
 auth0-export --email "user@example.com"
 ```
@@ -155,6 +194,21 @@ auth0-export --env /path/to/tenant-specific.env --format json
 
 The tool will automatically show which .env file it's loading and the path it's looking for.
 
+### Bulk Operations with User Files
+
+For bulk operations, create a text file with one user identifier per line:
+
+```text
+# users.txt
+user1@example.com
+user2@example.com
+auth0|507f1f77bcf86cd799439011
+auth0|507f1f77bcf86cd799439012
+admin@company.com
+```
+
+The tool automatically detects whether each line is an email address or Auth0 user ID and handles them appropriately.
+
 ## 🔧 Auth0 Setup
 
 To use this tool, you need to create a Machine-to-Machine application in Auth0:
@@ -170,7 +224,9 @@ To use this tool, you need to create a Machine-to-Machine application in Auth0:
    - `read:organization_member_roles` - for reading organization-specific roles
    - `read:roles` - for reading available roles
    - `update:users` - for assigning/removing global roles (if using role management)
-   - `update:organization_members` - for assigning/removing organization roles (if using role management)
+   - `update:organization_members` - for assigning/removing organization roles and memberships (if using role/org management)
+   - `create:organization_members` - for adding users to organizations (if using org management)
+   - `delete:organization_members` - for removing users from organizations (if using org management)
 
 The CLI will guide you through this setup process interactively.
 
@@ -200,7 +256,15 @@ Manage user roles directly from the CLI:
 - **Assign Global Roles**: Add roles to users for tenant-wide permissions
 - **Assign Organization Roles**: Add roles to users within specific organizations
 - **Remove Roles**: Remove global or organization-specific roles from users
-- **Bulk Operations**: Combine role management with user queries for efficient workflows
+- **Bulk Operations**: Apply role changes to multiple users from a file
+
+### Organization Management
+Manage user organization memberships:
+- **List Organizations**: View all available organizations in your tenant
+- **Assign to Organization**: Add users to organizations (membership)
+- **Remove from Organization**: Remove users from organizations
+- **Bulk Assignment**: Add/remove multiple users to/from organizations from a file
+- **Combined Operations**: Assign users to orgs and roles in one command
 
 ### Export Formats
 - **Excel (.xlsx)**: Structured spreadsheet with auto-adjusted columns
@@ -259,11 +323,26 @@ For large exports (1000+ users), the tool may take time but will complete reliab
 # Install development dependencies
 uv sync
 
-# Build package
+# Build Python package
 uv build
+
+# Build standalone executable
+python build.py
 
 # Run tests (if available)
 uv run pytest
+```
+
+### Building Standalone Executables
+```bash
+# Install build dependencies
+uv sync --group build
+
+# Build executable for current platform
+python build.py
+
+# The executable will be created in dist/ directory
+# Test with: ./dist/auth0-export-{platform} --help
 ```
 
 ## 📝 License

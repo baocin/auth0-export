@@ -1,0 +1,339 @@
+name: Build and Release Executables
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version tag (e.g., v1.0.0)'
+        required: true
+        default: 'v1.0.0'
+
+jobs:
+  build:
+    name: Build ${{ matrix.os }} executable
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-latest
+            artifact_name: auth0-export-linux
+            asset_name: auth0-export-linux-x64
+          - os: windows-latest
+            artifact_name: auth0-export-windows.exe
+            asset_name: auth0-export-windows-x64.exe
+          - os: macos-latest
+            artifact_name: auth0-export-macos
+            asset_name: auth0-export-macos-x64
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.12'
+
+    - name: Install UV
+      shell: bash
+      run: |
+        if [[ "$RUNNER_OS" == "Windows" ]]; then
+          powershell -c "irm https://astral.sh/uv/install.ps1 | iex"
+          echo "$HOME\.cargo\bin" >> $GITHUB_PATH
+        else
+          curl -LsSf https://astral.sh/uv/install.sh | sh
+          echo "$HOME/.cargo/bin" >> $GITHUB_PATH
+        fi
+
+    - name: Install dependencies
+      run: |
+        uv sync
+
+    - name: Install PyInstaller
+      run: |
+        uv add pyinstaller
+
+    - name: Create PyInstaller spec file
+      shell: bash
+      run: |
+        cat > auth0-export.spec << 'EOF'
+        # -*- mode: python ; coding: utf-8 -*-
+        import sys
+        from pathlib import Path
+
+        block_cipher = None
+
+        # Define the main script path
+        main_script = Path('auth0_export') / 'cli.py'
+
+        a = Analysis(
+            [str(main_script)],
+            pathex=[],
+            binaries=[],
+            datas=[
+                ('auth0_export/*.py', 'auth0_export'),
+            ],
+            hiddenimports=[
+                'auth0_export.cli',
+                'auth0_export.exporter',
+                'auth0.authentication',
+                'auth0.management',
+                'pandas',
+                'openpyxl',
+                'rich',
+                'blessings',
+                'click',
+                'dotenv',
+                'logging',
+                'json',
+                'time',
+                'datetime',
+                'pathlib',
+                'typing',
+                'os',
+                'sys',
+                'random',
+            ],
+            hookspath=[],
+            hooksconfig={},
+            runtime_hooks=[],
+            excludes=[],
+            win_no_prefer_redirects=False,
+            win_private_assemblies=False,
+            cipher=block_cipher,
+            noarchive=False,
+        )
+
+        pyz = PYZ(a.pure, a.zipped_data, cipher=block_cipher)
+
+        exe = EXE(
+            pyz,
+            a.scripts,
+            a.binaries,
+            a.zipfiles,
+            a.datas,
+            [],
+            name='${{ matrix.artifact_name }}',
+            debug=False,
+            bootloader_ignore_signals=False,
+            strip=False,
+            upx=True,
+            upx_exclude=[],
+            runtime_tmpdir=None,
+            console=True,
+            disable_windowed_traceback=False,
+            argv_emulation=False,
+            target_arch=None,
+            codesign_identity=None,
+            entitlements_file=None,
+        )
+        EOF
+
+    - name: Build executable with PyInstaller
+      run: |
+        uv run pyinstaller auth0-export.spec --clean --noconfirm
+
+    - name: Test executable (Unix)
+      if: runner.os != 'Windows'
+      run: |
+        chmod +x dist/${{ matrix.artifact_name }}
+        ./dist/${{ matrix.artifact_name }} --help
+
+    - name: Test executable (Windows)
+      if: runner.os == 'Windows'
+      run: |
+        .\dist\${{ matrix.artifact_name }} --help
+
+    - name: Create archive (Unix)
+      if: runner.os != 'Windows'
+      run: |
+        cd dist
+        tar -czf ${{ matrix.asset_name }}.tar.gz ${{ matrix.artifact_name }}
+        ls -la
+
+    - name: Create archive (Windows)
+      if: runner.os == 'Windows'
+      run: |
+        cd dist
+        Compress-Archive -Path ${{ matrix.artifact_name }} -DestinationPath ${{ matrix.asset_name }}.zip
+
+    - name: Upload artifact
+      uses: actions/upload-artifact@v3
+      with:
+        name: ${{ matrix.asset_name }}
+        path: |
+          dist/${{ matrix.asset_name }}.tar.gz
+          dist/${{ matrix.asset_name }}.zip
+        retention-days: 30
+
+  release:
+    name: Create Release
+    needs: build
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set version
+      id: version
+      run: |
+        if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+          echo "VERSION=${{ github.event.inputs.version }}" >> $GITHUB_OUTPUT
+        else
+          echo "VERSION=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+        fi
+
+    - name: Download all artifacts
+      uses: actions/download-artifact@v3
+      with:
+        path: artifacts
+
+    - name: List artifacts
+      run: |
+        find artifacts -type f -name "*" | sort
+
+    - name: Create Release
+      id: create_release
+      uses: actions/create-release@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        tag_name: ${{ steps.version.outputs.VERSION }}
+        release_name: Auth0 Export ${{ steps.version.outputs.VERSION }}
+        body: |
+          ## Auth0 Export CLI ${{ steps.version.outputs.VERSION }}
+          
+          🚀 **Standalone Executables - No Python Installation Required!**
+          
+          Download the executable for your platform:
+          
+          ### 📥 **Quick Download**
+          - **🍎 macOS**: `auth0-export-macos-x64.tar.gz`
+          - **🐧 Linux**: `auth0-export-linux-x64.tar.gz` 
+          - **🪟 Windows**: `auth0-export-windows-x64.exe.zip`
+          
+          ### 🏃‍♂️ **Quick Start**
+          1. Download the executable for your platform
+          2. Extract the archive (if applicable)
+          3. Run `./auth0-export --help` to get started
+          4. Use `./auth0-export --setup` for interactive credential setup
+          
+          ### ✨ **Features**
+          - 🎨 Beautiful CLI with progress bars and colors
+          - 👤 Single user queries and bulk operations
+          - 🎭 Role management (assign/remove global and org roles)
+          - 🏢 Organization management (assign/remove users to/from orgs)
+          - 📊 Export to Excel/JSON with comprehensive user data
+          - ⚡ Smart rate limiting and retry logic
+          - 📂 Bulk operations from user files
+          
+          ### 📖 **Documentation**
+          Full documentation available at: https://github.com/baocin/auth0-export
+          
+          ### 🆘 **Support**
+          - Report issues: https://github.com/baocin/auth0-export/issues
+          - Commercial licensing: auth0managementtool@steele.red
+        draft: false
+        prerelease: false
+
+    - name: Upload macOS Release Asset
+      uses: actions/upload-release-asset@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        upload_url: ${{ steps.create_release.outputs.upload_url }}
+        asset_path: artifacts/auth0-export-macos-x64/auth0-export-macos-x64.tar.gz
+        asset_name: auth0-export-macos-x64.tar.gz
+        asset_content_type: application/gzip
+
+    - name: Upload Linux Release Asset
+      uses: actions/upload-release-asset@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        upload_url: ${{ steps.create_release.outputs.upload_url }}
+        asset_path: artifacts/auth0-export-linux-x64/auth0-export-linux-x64.tar.gz
+        asset_name: auth0-export-linux-x64.tar.gz
+        asset_content_type: application/gzip
+
+    - name: Upload Windows Release Asset
+      uses: actions/upload-release-asset@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        upload_url: ${{ steps.create_release.outputs.upload_url }}
+        asset_path: artifacts/auth0-export-windows-x64/auth0-export-windows-x64.exe.zip
+        asset_name: auth0-export-windows-x64.exe.zip
+        asset_content_type: application/zip
+
+  update-readme:
+    name: Update README with download links
+    needs: [build, release]
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set version
+      id: version
+      run: |
+        if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+          echo "VERSION=${{ github.event.inputs.version }}" >> $GITHUB_OUTPUT
+        else
+          echo "VERSION=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+        fi
+
+    - name: Update README with download links
+      run: |
+        VERSION="${{ steps.version.outputs.VERSION }}"
+        
+        # Create download section
+        cat > download_section.md << EOF
+        
+        ## 📥 **Direct Downloads - No Python Required!**
+        
+        **Latest Release: $VERSION**
+        
+        ### Standalone Executables
+        \`\`\`bash
+        # macOS (Intel/Apple Silicon)
+        curl -L -o auth0-export-macos.tar.gz https://github.com/baocin/auth0-export/releases/download/$VERSION/auth0-export-macos-x64.tar.gz
+        tar -xzf auth0-export-macos.tar.gz
+        chmod +x auth0-export-macos
+        ./auth0-export-macos --help
+        
+        # Linux (x64)
+        curl -L -o auth0-export-linux.tar.gz https://github.com/baocin/auth0-export/releases/download/$VERSION/auth0-export-linux-x64.tar.gz
+        tar -xzf auth0-export-linux.tar.gz
+        chmod +x auth0-export-linux
+        ./auth0-export-linux --help
+        
+        # Windows (x64) - PowerShell
+        Invoke-WebRequest -Uri "https://github.com/baocin/auth0-export/releases/download/$VERSION/auth0-export-windows-x64.exe.zip" -OutFile "auth0-export-windows.zip"
+        Expand-Archive -Path "auth0-export-windows.zip" -DestinationPath "."
+        .\auth0-export-windows.exe --help
+        \`\`\`
+        
+        **Or download directly from:** [GitHub Releases](https://github.com/baocin/auth0-export/releases/latest)
+        
+        EOF
+        
+        # Insert after the Quick Start section
+        sed -i '/## 🏃‍♂️ \*\*Alternative Quick Start/r download_section.md' README.md
+        
+        echo "Updated README.md with download links for $VERSION"
+
+    - name: Commit and push README updates
+      run: |
+        git config --local user.email "action@github.com"
+        git config --local user.name "GitHub Action"
+        git add README.md
+        git diff --staged --quiet || git commit -m "📥 Update README with download links for ${{ steps.version.outputs.VERSION }}"
+        git push

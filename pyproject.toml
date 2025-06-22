@@ -50,4 +50,8 @@ auth0-export = { workspace = true }
 [dependency-groups]
 dev = [
     "auth0-export",
+    "pyinstaller>=6.0.0",
+]
+build = [
+    "pyinstaller>=6.0.0",
 ]

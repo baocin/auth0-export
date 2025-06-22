@@ -7,7 +7,7 @@ import os
 import sys
 import time
 from pathlib import Path
-from typing import Optional
+from typing import Optional, List
 
 import click
 from blessings import Terminal
@@ -115,6 +115,32 @@ def check_credentials(env_file_path: Optional[str] = None) -> dict:
             sys.exit(1)
     
     return credentials
+
+def read_users_from_file(file_path: str, preview: bool = True) -> List[str]:
+    """Read user emails/IDs from a file (one per line)"""
+    try:
+        with open(file_path, 'r', encoding='utf-8') as f:
+            users = [line.strip() for line in f if line.strip()]
+        
+        console.print(f"📁 Loaded {len(users)} users from {file_path}")
+        
+        if preview and users:
+            # Show preview of users
+            console.print("\n👥 [bold cyan]Users to process:[/bold cyan]")
+            preview_count = min(10, len(users))
+            for i, user in enumerate(users[:preview_count]):
+                console.print(f"   {i+1:2d}. {user}")
+            
+            if len(users) > preview_count:
+                console.print(f"   ... and {len(users) - preview_count} more users")
+        
+        return users
+    except FileNotFoundError:
+        console.print(f"❌ [red]File not found: {file_path}[/red]")
+        sys.exit(1)
+    except Exception as e:
+        console.print(f"❌ [red]Error reading file {file_path}: {e}[/red]")
+        sys.exit(1)
 
 def setup_credentials():
     """Interactive setup of Auth0 credentials."""
@@ -286,14 +312,19 @@ def display_user_table(user_data: dict):
 @click.option('--assign-org-role', help='Assign organization role ID to user (requires --user-id or --email and --org-id)')
 @click.option('--remove-global-role', help='Remove global role ID from user (requires --user-id or --email)')
 @click.option('--remove-org-role', help='Remove organization role ID from user (requires --user-id or --email and --org-id)')
-@click.option('--org-id', help='Organization ID for role operations')
+@click.option('--assign-to-org', is_flag=True, help='Assign user to organization (requires --user-id or --email and --org-id)')
+@click.option('--remove-from-org', is_flag=True, help='Remove user from organization (requires --user-id or --email and --org-id)')
+@click.option('--users-file', help='File containing list of user emails/IDs (one per line) for bulk operations')
+@click.option('--org-id', help='Organization ID for role and organization operations')
 @click.option('--list-roles', is_flag=True, help='List all available roles in the tenant')
+@click.option('--list-orgs', is_flag=True, help='List all available organizations in the tenant')
 @click.version_option(version="0.1.0", prog_name="auth0-export")
 def main(output: Optional[str], rate_limit: Optional[int], setup: bool, quiet: bool, 
          user_id: Optional[str], email: Optional[str], format: str, json_pretty: bool, env: Optional[str],
          assign_global_role: Optional[str], assign_org_role: Optional[str], 
          remove_global_role: Optional[str], remove_org_role: Optional[str],
-         org_id: Optional[str], list_roles: bool):
+         assign_to_org: bool, remove_from_org: bool, users_file: Optional[str],
+         org_id: Optional[str], list_roles: bool, list_orgs: bool):
     """
     🚀 Export Auth0 users, organizations, and roles to Excel/JSON.
     
@@ -312,8 +343,11 @@ def main(output: Optional[str], rate_limit: Optional[int], setup: bool, quiet: b
       auth0-export -o users.xlsx --rate-limit 15            # Custom filename and rate
       auth0-export --env /path/to/my.env        # Use custom .env file
       auth0-export --list-roles                 # List all available roles
+      auth0-export --list-orgs                  # List all available organizations
       auth0-export --email user@example.com --assign-global-role rol_123   # Assign global role
       auth0-export --email user@example.com --assign-org-role rol_456 --org-id org_789  # Assign org role
+      auth0-export --email user@example.com --assign-to-org --org-id org_123  # Assign user to organization
+      auth0-export --users-file users.txt --assign-to-org --org-id org_123     # Bulk assign users to org
     """
     
     if not quiet:
@@ -332,12 +366,23 @@ def main(output: Optional[str], rate_limit: Optional[int], setup: bool, quiet: b
     
     # Validate role management options
     role_actions = [assign_global_role, assign_org_role, remove_global_role, remove_org_role]
-    if any(role_actions) and not (user_id or email):
-        console.print("❌ [red]Role management requires --user-id or --email to specify the target user.[/red]")
+    org_actions = [assign_to_org, remove_from_org]
+    
+    if any(role_actions) and not (user_id or email or users_file):
+        console.print("❌ [red]Role management requires --user-id, --email, or --users-file to specify the target user(s).[/red]")
         sys.exit(1)
     
-    if (assign_org_role or remove_org_role) and not org_id:
-        console.print("❌ [red]Organization role operations require --org-id.[/red]")
+    if any(org_actions) and not (user_id or email or users_file):
+        console.print("❌ [red]Organization management requires --user-id, --email, or --users-file to specify the target user(s).[/red]")
+        sys.exit(1)
+    
+    if (assign_org_role or remove_org_role or assign_to_org or remove_from_org) and not org_id:
+        console.print("❌ [red]Organization operations require --org-id.[/red]")
+        sys.exit(1)
+    
+    # Validate bulk operations
+    if users_file and (user_id or email):
+        console.print("❌ [red]Cannot specify both --users-file and individual user options (--user-id or --email).[/red]")
         sys.exit(1)
     
     # Check credentials
@@ -382,77 +427,195 @@ def main(output: Optional[str], rate_limit: Optional[int], setup: bool, quiet: b
                 console.print("❌ [red]No roles found or unable to fetch roles.[/red]")
             return
         
-        # Handle role management actions
-        role_actions = [assign_global_role, assign_org_role, remove_global_role, remove_org_role]
-        if any(role_actions):
-            # Get the target user
-            if user_id:
-                user = exporter.get_user_by_id(user_id)
-                query_type = f"ID: {user_id}"
-            else:
-                user = exporter.get_user_by_email(email)
-                query_type = f"Email: {email}"
+        # Handle list organizations command
+        if list_orgs:
+            if not quiet:
+                console.print("\n🏢 [bold green]Fetching available organizations...[/bold green]")
             
-            if not user:
-                console.print(f"❌ [red]User not found with {query_type}[/red]")
+            orgs = exporter.get_available_organizations()
+            if orgs:
+                orgs_table = Table(title="🏢 Available Organizations", show_header=True, header_style="bold green")
+                orgs_table.add_column("Organization Name", style="green")
+                orgs_table.add_column("Organization ID", style="dim")
+                orgs_table.add_column("Display Name", style="bright_green")
+                orgs_table.add_column("Metadata", style="white")
+                
+                for org in orgs:
+                    metadata_str = str(org.get('metadata', {})) if org.get('metadata') else 'None'
+                    orgs_table.add_row(
+                        org.get('name', 'N/A'),
+                        org.get('id', 'N/A'),
+                        org.get('display_name', 'N/A'),
+                        metadata_str[:40] + ('...' if len(metadata_str) > 40 else metadata_str)
+                    )
+                
+                console.print(orgs_table)
+                console.print(f"\n✅ Found {len(orgs)} organizations total")
+            else:
+                console.print("❌ [red]No organizations found or unable to fetch organizations.[/red]")
+            return
+        
+        # Handle organization management actions
+        org_actions = [assign_to_org, remove_from_org]
+        role_actions = [assign_global_role, assign_org_role, remove_global_role, remove_org_role]
+        
+        if any(org_actions) or any(role_actions):
+            # Get target users (single or bulk)
+            target_users = []
+            
+            if users_file:
+                # Bulk operation from file
+                user_identifiers = read_users_from_file(users_file, preview=not quiet)
+                
+                # Show what operations will be performed
+                if not quiet:
+                    console.print(f"\n🎯 [bold magenta]Operations to perform:[/bold magenta]")
+                    if assign_global_role:
+                        console.print(f"   🔗 Assign global role: [cyan]{assign_global_role}[/cyan]")
+                    if assign_org_role:
+                        console.print(f"   🏢 Assign org role: [cyan]{assign_org_role}[/cyan] in org [cyan]{org_id}[/cyan]")
+                    if remove_global_role:
+                        console.print(f"   🗑️  Remove global role: [yellow]{remove_global_role}[/yellow]")
+                    if remove_org_role:
+                        console.print(f"   🗑️  Remove org role: [yellow]{remove_org_role}[/yellow] from org [yellow]{org_id}[/yellow]")
+                    if assign_to_org:
+                        console.print(f"   🏢 Assign to organization: [green]{org_id}[/green]")
+                    if remove_from_org:
+                        console.print(f"   🗑️  Remove from organization: [red]{org_id}[/red]")
+                    
+                    console.print(f"\n📊 [bold]Total users to process:[/bold] {len(user_identifiers)}")
+                    
+                    # Ask for confirmation
+                    if not Confirm.ask("\n❓ Do you want to proceed with these bulk operations?", default=False):
+                        console.print("❌ [yellow]Operation cancelled by user[/yellow]")
+                        return
+                
+                if not quiet:
+                    console.print(f"\n🔍 [bold yellow]Resolving {len(user_identifiers)} users...[/bold yellow]")
+                
+                for identifier in user_identifiers:
+                    # Try to determine if it's an email or user ID
+                    if '@' in identifier:
+                        user = exporter.get_user_by_email(identifier)
+                    else:
+                        user = exporter.get_user_by_id(identifier)
+                    
+                    if user:
+                        target_users.append(user)
+                    else:
+                        console.print(f"⚠️  [yellow]User not found: {identifier}[/yellow]")
+                
+                if not quiet:
+                    console.print(f"✅ Found {len(target_users)} out of {len(user_identifiers)} users")
+            else:
+                # Single user operation
+                if user_id:
+                    user = exporter.get_user_by_id(user_id)
+                    query_type = f"ID: {user_id}"
+                else:
+                    user = exporter.get_user_by_email(email)
+                    query_type = f"Email: {email}"
+                
+                if not user:
+                    console.print(f"❌ [red]User not found with {query_type}[/red]")
+                    sys.exit(1)
+                
+                target_users.append(user)
+            
+            if not target_users:
+                console.print("❌ [red]No valid users found to process.[/red]")
                 sys.exit(1)
             
-            target_user_id = user.get('user_id')
-            user_email = user.get('email', 'N/A')
+            # Process each user
+            total_success = 0
+            total_users = len(target_users)
             
-            if not quiet:
-                console.print(f"🎯 [bold]Target user:[/bold] {user_email} ({target_user_id})")
-            
-            success_count = 0
-            total_actions = sum(1 for action in role_actions if action)
-            
-            # Handle global role assignment
-            if assign_global_role:
-                if not quiet:
-                    console.print(f"\n🔗 [bold cyan]Assigning global role:[/bold cyan] {assign_global_role}")
-                if exporter.assign_global_role(target_user_id, assign_global_role):
-                    console.print("✅ [green]Global role assigned successfully[/green]")
-                    success_count += 1
-                else:
-                    console.print("❌ [red]Failed to assign global role[/red]")
-            
-            # Handle organization role assignment
-            if assign_org_role:
-                if not quiet:
-                    console.print(f"\n🏢 [bold cyan]Assigning organization role:[/bold cyan] {assign_org_role} in org {org_id}")
-                if exporter.assign_organization_role(target_user_id, org_id, assign_org_role):
-                    console.print("✅ [green]Organization role assigned successfully[/green]")
-                    success_count += 1
-                else:
-                    console.print("❌ [red]Failed to assign organization role[/red]")
-            
-            # Handle global role removal
-            if remove_global_role:
-                if not quiet:
-                    console.print(f"\n🗑️ [bold yellow]Removing global role:[/bold yellow] {remove_global_role}")
-                if exporter.remove_global_role(target_user_id, remove_global_role):
-                    console.print("✅ [green]Global role removed successfully[/green]")
-                    success_count += 1
-                else:
-                    console.print("❌ [red]Failed to remove global role[/red]")
-            
-            # Handle organization role removal
-            if remove_org_role:
-                if not quiet:
-                    console.print(f"\n🗑️ [bold yellow]Removing organization role:[/bold yellow] {remove_org_role} from org {org_id}")
-                if exporter.remove_organization_role(target_user_id, org_id, remove_org_role):
-                    console.print("✅ [green]Organization role removed successfully[/green]")
-                    success_count += 1
-                else:
-                    console.print("❌ [red]Failed to remove organization role[/red]")
-            
-            # Summary
-            if not quiet:
-                console.print(f"\n📊 [bold]Summary:[/bold] {success_count}/{total_actions} actions completed successfully")
+            for i, user in enumerate(target_users):
+                target_user_id = user.get('user_id')
+                user_email = user.get('email', 'N/A')
                 
-                if success_count > 0:
-                    console.print("💡 [dim]You can run with the same user options to see updated roles:[/dim]")
-                    console.print(f"   [dim]auth0-export --email {user_email}[/dim]")
+                if not quiet and total_users > 1:
+                    console.print(f"\n🎯 [bold]Processing user {i+1}/{total_users}:[/bold] {user_email}")
+                elif not quiet:
+                    console.print(f"🎯 [bold]Target user:[/bold] {user_email} ({target_user_id})")
+                
+                user_success_count = 0
+                user_actions = sum(1 for action in (role_actions + org_actions) if action)
+                
+                # Handle global role assignment
+                if assign_global_role:
+                    if not quiet:
+                        console.print(f"🔗 [bold cyan]Assigning global role:[/bold cyan] {assign_global_role}")
+                    if exporter.assign_global_role(target_user_id, assign_global_role):
+                        console.print("✅ [green]Global role assigned successfully[/green]")
+                        user_success_count += 1
+                    else:
+                        console.print("❌ [red]Failed to assign global role[/red]")
+                
+                # Handle organization role assignment
+                if assign_org_role:
+                    if not quiet:
+                        console.print(f"🏢 [bold cyan]Assigning organization role:[/bold cyan] {assign_org_role} in org {org_id}")
+                    if exporter.assign_organization_role(target_user_id, org_id, assign_org_role):
+                        console.print("✅ [green]Organization role assigned successfully[/green]")
+                        user_success_count += 1
+                    else:
+                        console.print("❌ [red]Failed to assign organization role[/red]")
+                
+                # Handle global role removal
+                if remove_global_role:
+                    if not quiet:
+                        console.print(f"🗑️ [bold yellow]Removing global role:[/bold yellow] {remove_global_role}")
+                    if exporter.remove_global_role(target_user_id, remove_global_role):
+                        console.print("✅ [green]Global role removed successfully[/green]")
+                        user_success_count += 1
+                    else:
+                        console.print("❌ [red]Failed to remove global role[/red]")
+                
+                # Handle organization role removal
+                if remove_org_role:
+                    if not quiet:
+                        console.print(f"🗑️ [bold yellow]Removing organization role:[/bold yellow] {remove_org_role} from org {org_id}")
+                    if exporter.remove_organization_role(target_user_id, org_id, remove_org_role):
+                        console.print("✅ [green]Organization role removed successfully[/green]")
+                        user_success_count += 1
+                    else:
+                        console.print("❌ [red]Failed to remove organization role[/red]")
+                
+                # Handle organization assignment
+                if assign_to_org:
+                    if not quiet:
+                        console.print(f"🏢 [bold green]Assigning user to organization:[/bold green] {org_id}")
+                    if exporter.assign_user_to_organization(target_user_id, org_id):
+                        console.print("✅ [green]User assigned to organization successfully[/green]")
+                        user_success_count += 1
+                    else:
+                        console.print("❌ [red]Failed to assign user to organization[/red]")
+                
+                # Handle organization removal
+                if remove_from_org:
+                    if not quiet:
+                        console.print(f"🗑️ [bold red]Removing user from organization:[/bold red] {org_id}")
+                    if exporter.remove_user_from_organization(target_user_id, org_id):
+                        console.print("✅ [green]User removed from organization successfully[/green]")
+                        user_success_count += 1
+                    else:
+                        console.print("❌ [red]Failed to remove user from organization[/red]")
+                
+                total_success += user_success_count
+                
+                if not quiet and total_users > 1:
+                    console.print(f"📈 User {i+1} summary: {user_success_count}/{user_actions} actions completed")
+            
+            # Overall summary
+            if not quiet:
+                total_actions = total_users * user_actions
+                console.print(f"\n📊 [bold]Overall Summary:[/bold] {total_success}/{total_actions} actions completed successfully")
+                console.print(f"👥 Processed {total_users} user(s)")
+                
+                if total_success > 0 and total_users == 1:
+                    console.print("💡 [dim]You can run with the same user options to see updated data:[/dim]")
+                    console.print(f"   [dim]auth0-export --email {target_users[0].get('email', 'N/A')}[/dim]")
             
             return
         

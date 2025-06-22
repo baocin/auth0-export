@@ -1,0 +1,53 @@
+name: Test Build
+
+on:
+  pull_request:
+    branches: [ main ]
+  push:
+    branches: [ main ]
+
+jobs:
+  test-build:
+    name: Test build on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.12'
+
+    - name: Install UV
+      shell: bash
+      run: |
+        if [[ "$RUNNER_OS" == "Windows" ]]; then
+          powershell -c "irm https://astral.sh/uv/install.ps1 | iex"
+          echo "$HOME\.cargo\bin" >> $GITHUB_PATH
+        else
+          curl -LsSf https://astral.sh/uv/install.sh | sh
+          echo "$HOME/.cargo/bin" >> $GITHUB_PATH
+        fi
+
+    - name: Install dependencies
+      run: |
+        uv sync --group build
+
+    - name: Test CLI functionality
+      run: |
+        uv run python -m auth0_export.cli --help
+
+    - name: Build executable (quick test)
+      run: |
+        python build.py
+      continue-on-error: true
+
+    - name: List build outputs
+      run: |
+        ls -la dist/ || dir dist\
+      continue-on-error: true
