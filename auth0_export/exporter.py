@@ -521,8 +521,9 @@ class Auth0Exporter:
         """Assign a role to a user within an organization"""
         try:
             # Use the correct method and payload format: create_organization_member_roles
+            # Auth0 Management API expects roles as an array of role ID strings
             payload = {
-                "roles": [{"id": role_id}]
+                "roles": [role_id]
             }
             self._retry_with_backoff(
                 self.auth0.organizations.create_organization_member_roles,
@@ -554,8 +555,9 @@ class Auth0Exporter:
         """Remove a role from a user within an organization"""
         try:
             # Use the correct method and payload format: delete_organization_member_roles
+            # Auth0 Management API expects roles as an array of role ID strings
             payload = {
-                "roles": [{"id": role_id}]
+                "roles": [role_id]
             }
             self._retry_with_backoff(
                 self.auth0.organizations.delete_organization_member_roles,

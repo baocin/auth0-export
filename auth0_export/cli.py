@@ -322,13 +322,14 @@ def display_user_table(user_data: dict):
 @click.option('--list-orgs', is_flag=True, help='List all available organizations in the tenant')
 @click.option('--debug-org-roles', help='Debug org roles for specific user ID and org ID (format: user_id,org_id)')
 @click.option('--debug-api-methods', is_flag=True, help='Show available API methods for debugging')
+@click.option('--yes', '-y', is_flag=True, help='Skip confirmation prompts for bulk operations')
 @click.version_option(version="0.1.0", prog_name="auth0-export")
 def main(output: Optional[str], rate_limit: Optional[int], setup: bool, quiet: bool, 
          user_id: Optional[str], email: Optional[str], format: str, json_pretty: bool, env: Optional[str],
          assign_global_role: Optional[str], assign_org_role: Optional[str], 
          remove_global_role: Optional[str], remove_org_role: Optional[str],
          assign_to_org: bool, remove_from_org: bool, users_file: Optional[str],
-         org_id: Optional[str], list_roles: bool, list_orgs: bool, debug_org_roles: Optional[str], debug_api_methods: bool):
+         org_id: Optional[str], list_roles: bool, list_orgs: bool, debug_org_roles: Optional[str], debug_api_methods: bool, yes: bool):
     """
     🚀 Export Auth0 users, organizations, and roles to Excel/JSON.
     
@@ -548,10 +549,17 @@ def main(output: Optional[str], rate_limit: Optional[int], setup: bool, quiet: b
                     
                     console.print(f"\n📊 [bold]Total users to process:[/bold] {len(user_identifiers)}")
                     
-                    # Ask for confirmation
-                    if not Confirm.ask("\n❓ Do you want to proceed with these bulk operations?", default=False):
-                        console.print("❌ [yellow]Operation cancelled by user[/yellow]")
-                        return
+                    # Ask for confirmation (skip if --yes flag is used)
+                    if not yes:
+                        try:
+                            if not Confirm.ask("\n❓ Do you want to proceed with these bulk operations?", default=False):
+                                console.print("❌ [yellow]Operation cancelled by user[/yellow]")
+                                return
+                        except EOFError:
+                            # Non-interactive mode, proceed automatically
+                            console.print("\n🤖 [dim]Non-interactive mode detected, proceeding with bulk operations...[/dim]")
+                    else:
+                        console.print("\n✅ [dim]Confirmation skipped with --yes flag[/dim]")
                 
                 if not quiet:
                     console.print(f"\n🔍 [bold yellow]Resolving {len(user_identifiers)} users...[/bold yellow]")
@@ -719,20 +727,10 @@ def main(output: Optional[str], rate_limit: Optional[int], setup: bool, quiet: b
                 else:
                     print(f"Export completed: {output_file}")
             else:
-                # Display table format
+                # Display table format (no export prompts)
                 if not quiet:
                     console.print("")
                     display_user_table(user_data)
-                    
-                    # Ask if user wants to export
-                    if Confirm.ask("\nWould you like to export this user data to a file?", default=False):
-                        export_format = Prompt.ask("Choose format", choices=["excel", "json"], default="json")
-                        if export_format == "json":
-                            output_file = exporter.export_single_user_json(user_data, output)
-                        else:
-                            # Export single user to Excel (create a list with one user)
-                            output_file = exporter.export_to_excel(output, user_data=[user])
-                        console.print(f"✅ Exported to: {output_file}")
                 else:
                     # Quiet mode - just show essential info
                     print(f"User: {user.get('email', 'N/A')} ({user.get('user_id', 'N/A')})")
@@ -782,22 +780,10 @@ def main(output: Optional[str], rate_limit: Optional[int], setup: bool, quiet: b
                 else:
                     output_file = exporter.export_to_excel(output)
             
-            # Success message
+            # Success message (no open file prompt)
             if not quiet:
                 console.print("\n🎉 [bold green]Full export completed successfully![/bold green]")
                 display_stats(exporter, output_file)
-                
-                # Open file option
-                if Confirm.ask("Would you like to open the export file?", default=True):
-                    import subprocess
-                    import platform
-                    
-                    if platform.system() == "Darwin":  # macOS
-                        subprocess.run(["open", output_file])
-                    elif platform.system() == "Windows":
-                        subprocess.run(["start", output_file], shell=True)
-                    else:  # Linux
-                        subprocess.run(["xdg-open", output_file])
             else:
                 print(f"Export completed: {output_file}")
             
