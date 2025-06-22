@@ -3,6 +3,7 @@
 import os
 import sys
 import time
+import json
 from datetime import datetime
 from typing import List, Dict, Any, Optional, Callable
 import pandas as pd
@@ -20,8 +21,12 @@ logger = logging.getLogger(__name__)
 # logger.setLevel(logging.DEBUG)
 
 class Auth0Exporter:
-    def __init__(self):
-        load_dotenv()
+    def __init__(self, env_file_path: Optional[str] = None):
+        # Load environment variables from custom path or default
+        if env_file_path:
+            load_dotenv(env_file_path)
+        else:
+            load_dotenv()
         
         self.domain = os.getenv('AUTH0_DOMAIN')
         self.client_id = os.getenv('AUTH0_CLIENT_ID')
@@ -120,6 +125,76 @@ class Auth0Exporter:
         
         raise Exception(f"Failed after {max_retries} attempts")
     
+    def get_user_by_id(self, user_id: str) -> Optional[Dict[str, Any]]:
+        """Get a specific user by their Auth0 user ID"""
+        try:
+            user = self._retry_with_backoff(
+                self.auth0.users.get,
+                user_id
+            )
+            logger.debug(f"Found user by ID: {user.get('email', user_id)}")
+            return user
+        except Exception as e:
+            logger.error(f"Error fetching user by ID {user_id}: {e}")
+            return None
+    
+    def get_user_by_email(self, email: str) -> Optional[Dict[str, Any]]:
+        """Get a specific user by their email address"""
+        try:
+            # Search for user by email using Lucene query syntax
+            search_query = f'email:"{email}"'
+            response = self._retry_with_backoff(
+                self.auth0.users.list,
+                q=search_query,
+                per_page=1
+            )
+            
+            users = response.get('users', [])
+            if users:
+                logger.debug(f"Found user by email: {email}")
+                return users[0]
+            else:
+                logger.warning(f"No user found with email: {email}")
+                return None
+        except Exception as e:
+            logger.error(f"Error fetching user by email {email}: {e}")
+            return None
+    
+    def get_user_complete_data(self, user: Dict[str, Any]) -> Dict[str, Any]:
+        """Get complete user data including organizations and roles"""
+        user_id = user.get('user_id')
+        
+        # Get user organizations
+        orgs = self.get_user_organizations(user_id)
+        
+        # Get global roles
+        global_roles = self.get_user_roles(user_id)
+        
+        # Get organization-specific roles for each org
+        org_data = []
+        for org in orgs:
+            org_roles = self.get_user_organization_roles(user_id, org['id'])
+            org_info = {
+                'organization': org,
+                'roles': org_roles
+            }
+            org_data.append(org_info)
+        
+        # Combine all data
+        complete_data = {
+            'user': user,
+            'global_roles': global_roles,
+            'organizations': org_data,
+            'metadata': {
+                'export_timestamp': datetime.now().isoformat(),
+                'total_organizations': len(orgs),
+                'total_global_roles': len(global_roles),
+                'total_org_roles': sum(len(org_info['roles']) for org_info in org_data)
+            }
+        }
+        
+        return complete_data
+    
     def get_all_users(self) -> List[Dict[str, Any]]:
         """Fetch all users from Auth0"""
         logger.info("Fetching all users...")
@@ -200,7 +275,7 @@ class Auth0Exporter:
             logger.error(f"Error fetching global roles for user {user_id}: {e}")
             return []
     
-    def export_to_excel(self, output_filename: str = None) -> str:
+    def export_to_excel(self, output_filename: str = None, progress_callback=None) -> str:
         """Export all user data to Excel"""
         if not output_filename:
             timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
@@ -216,18 +291,23 @@ class Auth0Exporter:
         
         start_time = time.time()
         for i, user in enumerate(users):
-            # Calculate and display progress
-            if i > 0:
-                elapsed = time.time() - start_time
-                avg_time_per_user = elapsed / i
-                remaining_users = len(users) - i
-                eta_seconds = remaining_users * avg_time_per_user
-                eta_minutes = eta_seconds / 60
-                
-                logger.info(f"Processing user {i+1}/{len(users)}: {user.get('email', 'N/A')} "
-                          f"(ETA: {eta_minutes:.1f} minutes)")
-            else:
-                logger.info(f"Processing user {i+1}/{len(users)}: {user.get('email', 'N/A')}")
+            # Update progress callback if provided
+            if progress_callback:
+                progress_callback(i, len(users), user.get('email', 'N/A'))
+            
+            # Only log progress if no progress callback (quiet mode or debug)
+            if not progress_callback:
+                if i > 0:
+                    elapsed = time.time() - start_time
+                    avg_time_per_user = elapsed / i
+                    remaining_users = len(users) - i
+                    eta_seconds = remaining_users * avg_time_per_user
+                    eta_minutes = eta_seconds / 60
+                    
+                    logger.info(f"Processing user {i+1}/{len(users)}: {user.get('email', 'N/A')} "
+                              f"(ETA: {eta_minutes:.1f} minutes)")
+                else:
+                    logger.info(f"Processing user {i+1}/{len(users)}: {user.get('email', 'N/A')}")
             
             # Basic user info
             user_data = {
@@ -337,6 +417,148 @@ class Auth0Exporter:
         logger.info(f"Total rows exported: {len(export_data)}")
         
         return output_filename
+    
+    def export_to_json(self, output_filename: str = None, user_data: List[Dict[str, Any]] = None, progress_callback=None) -> str:
+        """Export user data to JSON format"""
+        if not output_filename:
+            timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+            output_filename = f'auth0_users_export_{timestamp}.json'
+        
+        logger.info("Starting JSON export process...")
+        
+        # Get users if not provided
+        if user_data is None:
+            users = self.get_all_users()
+        else:
+            users = user_data
+        
+        # Prepare data for export
+        export_data = []
+        
+        start_time = time.time()
+        for i, user in enumerate(users):
+            # Update progress callback if provided
+            if progress_callback:
+                progress_callback(i, len(users), user.get('email', 'N/A'))
+            
+            # Only log progress if no progress callback (quiet mode or debug)
+            if not progress_callback:
+                logger.info(f"Processing user {i+1}/{len(users)}: {user.get('email', 'N/A')}")
+            
+            # Get complete user data
+            complete_data = self.get_user_complete_data(user)
+            export_data.append(complete_data)
+        
+        # Export to JSON
+        with open(output_filename, 'w', encoding='utf-8') as f:
+            json.dump(export_data, f, indent=2, default=str, ensure_ascii=False)
+        
+        # Calculate total time
+        total_time = time.time() - start_time
+        total_minutes = total_time / 60
+        
+        logger.info(f"JSON export completed successfully in {total_minutes:.1f} minutes!")
+        logger.info(f"File saved as: {output_filename}")
+        logger.info(f"Total users processed: {len(users)}")
+        logger.info(f"File size: {os.path.getsize(output_filename) / (1024*1024):.2f} MB")
+        
+        return output_filename
+    
+    def export_single_user_json(self, user_data: Dict[str, Any], output_filename: str = None) -> str:
+        """Export single user data to JSON"""
+        if not output_filename:
+            user_id = user_data['user'].get('user_id', 'unknown')
+            timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+            safe_user_id = user_id.replace('|', '_').replace('@', '_')
+            output_filename = f'auth0_user_{safe_user_id}_{timestamp}.json'
+        
+        with open(output_filename, 'w', encoding='utf-8') as f:
+            json.dump(user_data, f, indent=2, default=str, ensure_ascii=False)
+        
+        logger.info(f"Single user JSON export completed: {output_filename}")
+        return output_filename
+    
+    def assign_global_role(self, user_id: str, role_id: str) -> bool:
+        """Assign a global role to a user"""
+        try:
+            self._retry_with_backoff(
+                self.auth0.users.add_roles,
+                user_id,
+                [role_id]
+            )
+            logger.info(f"Successfully assigned global role {role_id} to user {user_id}")
+            return True
+        except Exception as e:
+            logger.error(f"Error assigning global role {role_id} to user {user_id}: {e}")
+            return False
+    
+    def assign_organization_role(self, user_id: str, org_id: str, role_id: str) -> bool:
+        """Assign a role to a user within an organization"""
+        try:
+            self._retry_with_backoff(
+                self.auth0.organizations.add_organization_member_roles,
+                org_id,
+                user_id,
+                [role_id]
+            )
+            logger.info(f"Successfully assigned role {role_id} to user {user_id} in organization {org_id}")
+            return True
+        except Exception as e:
+            logger.error(f"Error assigning role {role_id} to user {user_id} in org {org_id}: {e}")
+            return False
+    
+    def remove_global_role(self, user_id: str, role_id: str) -> bool:
+        """Remove a global role from a user"""
+        try:
+            self._retry_with_backoff(
+                self.auth0.users.remove_roles,
+                user_id,
+                [role_id]
+            )
+            logger.info(f"Successfully removed global role {role_id} from user {user_id}")
+            return True
+        except Exception as e:
+            logger.error(f"Error removing global role {role_id} from user {user_id}: {e}")
+            return False
+    
+    def remove_organization_role(self, user_id: str, org_id: str, role_id: str) -> bool:
+        """Remove a role from a user within an organization"""
+        try:
+            self._retry_with_backoff(
+                self.auth0.organizations.remove_organization_member_roles,
+                org_id,
+                user_id,
+                [role_id]
+            )
+            logger.info(f"Successfully removed role {role_id} from user {user_id} in organization {org_id}")
+            return True
+        except Exception as e:
+            logger.error(f"Error removing role {role_id} from user {user_id} in org {org_id}: {e}")
+            return False
+    
+    def get_available_roles(self) -> List[Dict[str, Any]]:
+        """Get all available roles in the tenant"""
+        try:
+            roles = []
+            page = 0
+            per_page = 100
+            
+            while True:
+                batch = self._retry_with_backoff(
+                    self.auth0.roles.list,
+                    page=page,
+                    per_page=per_page
+                )
+                if not batch.get('roles'):
+                    break
+                roles.extend(batch['roles'])
+                page += 1
+                
+            logger.info(f"Found {len(roles)} available roles")
+            return roles
+        except Exception as e:
+            logger.error(f"Error fetching available roles: {e}")
+            return []
 
 def main():
     try:

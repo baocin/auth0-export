@@ -1,13 +1,53 @@
 [project]
-name = "auth0-management"
+name = "auth0-export"
 version = "0.1.0"
-description = "Export Auth0 users and their organization data to Excel"
+description = "A beautiful CLI tool to export Auth0 users and their organization data to Excel"
 readme = "README.md"
+authors = [{name = "Auth0 Export", email = "auth0-export@example.com"}]
+license = {text = "MIT"}
 requires-python = ">=3.12"
+keywords = ["auth0", "export", "users", "organizations", "cli"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: System :: Systems Administration",
+    "Topic :: Utilities",
+]
 dependencies = [
-    "python-dotenv",
-    "requests",
-    "pandas",
-    "openpyxl",
-    "auth0-python",
+    "python-dotenv>=1.0.0",
+    "requests>=2.31.0",
+    "pandas>=2.0.0",
+    "openpyxl>=3.1.0",
+    "auth0-python>=4.7.0",
+    "blessings>=1.7",
+    "click>=8.1.0",
+    "rich>=13.0.0",
+]
+
+[project.scripts]
+auth0-export = "auth0_export.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/baocin/auth0-export"
+Repository = "https://github.com/baocin/auth0-export"
+Issues = "https://github.com/baocin/auth0-export/issues"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.uv]
+package = true
+
+[tool.uv.sources]
+auth0-export = { workspace = true }
+
+[dependency-groups]
+dev = [
+    "auth0-export",
 ]

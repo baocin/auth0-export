@@ -1,27 +1,162 @@
-# Auth0 User Export Tool
+# 🚀 Auth0 Export Tool
 
-This tool exports all Auth0 users, their organization associations, roles, and metadata to an Excel file.
+A beautiful CLI tool to export Auth0 users, organizations, and roles to Excel/JSON with fancy progress bars and interactive setup.
 
-## Setup
+## ⚡ **Quick Start - One Command**
 
-1. Install dependencies using UV:
 ```bash
+# Run directly from GitHub (no installation required)
+uvx --from git+https://github.com/baocin/auth0-export auth0-export
+```
+
+![CLI Demo](https://via.placeholder.com/800x400/1e1e2e/cdd6f4?text=Auth0+Export+CLI)
+
+## 🏃‍♂️ **Alternative Quick Start (if you don't have uv installed)**
+
+```bash
+# Run with quickstart script (downloads and runs automatically)
+curl -sSL https://raw.githubusercontent.com/baocin/auth0-export/main/quickstart.sh | bash
+```
+
+## 📦 **Installation Options**
+
+### Option 1: Run with uvx (Recommended)
+```bash
+# Run directly without installation
+uvx --from git+https://github.com/baocin/auth0-export auth0-export
+```
+
+### Option 2: Install and Run
+```bash
+# Install with uv
+uv add auth0-export
+
+# Or install with pip
+pip install auth0-export
+
+# Run the tool
+auth0-export
+```
+
+### Option 3: Development Setup
+```bash
+# Clone the repository
+git clone https://github.com/baocin/auth0-export.git
+cd auth0-export
+
+# Install dependencies with uv
 uv sync
+
+# Run the tool locally
+uv run auth0-export
+
+# Or run specific commands
+uv run auth0-export --email "user@example.com"
+uv run auth0-export --format json
 ```
 
-2. Create a `.env` file based on `.env.example`:
+## 🎯 Features
+
+- **🎨 Beautiful CLI** with colors, progress bars, and interactive prompts
+- **👤 Single User Queries** by Auth0 ID or email address
+- **🎭 Role Management** - assign/remove global and organization roles
+- **📋 Role Discovery** - list all available roles in your tenant
+- **📊 Beautiful Table Display** for user information and organization data
+- **📄 JSON Export** for full exports or individual users
+- **⚡ Smart Rate Limiting** with exponential backoff and jitter
+- **🔄 Auto-retry** for failed requests with intelligent backoff
+- **📊 Progress Tracking** with ETA and real-time updates
+- **🛠️ Interactive Setup** for Auth0 credentials
+- **📈 Export Statistics** showing file size and processing time
+- **🚀 One-command execution** with uvx
+
+## 🖥️ CLI Usage
+
+### Basic Commands
 ```bash
-cp .env.example .env
+# Export all users to Excel (default)
+auth0-export
+
+# Export all users to JSON
+auth0-export --format json
+
+# Query specific user by Auth0 ID
+auth0-export --user-id "auth0|606133e92be0f5006a51fd43"
+
+# Query specific user by email
+auth0-export --email "user@example.com"
+
+# Display user info as pretty JSON in terminal
+auth0-export --email "user@example.com" --json-pretty
+
+# Export single user to JSON file
+auth0-export --user-id "auth0|123..." --format json
+
+# Custom output filename and rate limit
+auth0-export -o users.xlsx -r 15
+
+# Use custom .env file
+auth0-export --env /path/to/my.env
+
+# Setup credentials only
+auth0-export --setup
+
+# Quiet mode (minimal output)
+auth0-export --quiet
+
+# Show help
+auth0-export --help
 ```
 
-3. Configure your Auth0 credentials in `.env`:
-   - `AUTH0_DOMAIN`: Your Auth0 tenant domain (e.g., your-tenant.auth0.com)
-   - `AUTH0_CLIENT_ID`: Your Auth0 application Client ID
-   - `AUTH0_CLIENT_SECRET`: Your Auth0 application Client Secret
-   - `AUTH0_AUDIENCE`: (Optional) Defaults to https://your-domain/api/v2/
-   - `AUTH0_RATE_LIMIT_PER_SEC`: (Optional) Rate limit per second. Defaults to 2 for free/trial tenants. Set to 15 for paid tenants.
+### Role Management Commands
+```bash
+# List all available roles in the tenant
+auth0-export --list-roles
 
-## Auth0 Application Setup
+# Assign global role to user
+auth0-export --email "user@example.com" --assign-global-role "rol_abcd1234"
+
+# Assign organization role to user
+auth0-export --user-id "auth0|123..." --assign-org-role "rol_efgh5678" --org-id "org_xyz9876"
+
+# Remove global role from user
+auth0-export --email "user@example.com" --remove-global-role "rol_abcd1234"
+
+# Remove organization role from user
+auth0-export --user-id "auth0|123..." --remove-org-role "rol_efgh5678" --org-id "org_xyz9876"
+
+# Check user's roles after modification
+auth0-export --email "user@example.com"
+```
+
+### Configuration
+
+The tool will interactively prompt you for Auth0 credentials on first run, or you can create a `.env` file:
+
+```bash
+# Auth0 Management API Configuration
+AUTH0_DOMAIN=your-tenant.auth0.com
+AUTH0_CLIENT_ID=your_client_id
+AUTH0_CLIENT_SECRET=your_client_secret
+AUTH0_AUDIENCE=https://your-tenant.auth0.com/api/v2/
+
+# Rate Limiting Configuration (optional)
+# Free/trial tenants: 2 requests/second (default)
+# Paid tenants: 15 requests/second
+AUTH0_RATE_LIMIT_PER_SEC=2
+```
+
+**Custom .env files:**
+```bash
+# Use different .env file for different tenants
+auth0-export --env .env.production
+auth0-export --env .env.staging --email "user@staging.com"
+auth0-export --env /path/to/tenant-specific.env --format json
+```
+
+The tool will automatically show which .env file it's loading and the path it's looking for.
+
+## 🔧 Auth0 Setup
 
 To use this tool, you need to create a Machine-to-Machine application in Auth0:
 
@@ -29,52 +164,135 @@ To use this tool, you need to create a Machine-to-Machine application in Auth0:
 2. Create a new application of type "Machine to Machine"
 3. Authorize it for the Auth0 Management API
 4. Grant the following scopes:
-   - `read:users`
-   - `read:user_idp_tokens`
-   - `read:organizations`
-   - `read:organization_members`
-   - `read:organization_member_roles`
-   - `read:roles`
+   - `read:users` - for reading user profiles and metadata
+   - `read:user_idp_tokens` - for reading user authentication tokens
+   - `read:organizations` - for reading organization information
+   - `read:organization_members` - for reading organization memberships
+   - `read:organization_member_roles` - for reading organization-specific roles
+   - `read:roles` - for reading available roles
+   - `update:users` - for assigning/removing global roles (if using role management)
+   - `update:organization_members` - for assigning/removing organization roles (if using role management)
 
-## Usage
+The CLI will guide you through this setup process interactively.
 
-Run the export script:
+## 📊 Export Data & Query Features
+
+### Full Export (Excel/JSON)
+Comprehensive data export includes:
+- **User Information**: ID, email, name, profile details
+- **Authentication**: Last login, login count, email verification status
+- **Organizations**: All organization memberships (multiple rows per user if needed)
+- **Roles**: Global roles and organization-specific roles
+- **Metadata**: User metadata and app metadata fields
+- **Timestamps**: Created, updated, and last login dates
+- **Connections**: Authentication providers and connection types
+
+### Single User Queries
+Query individual users and display beautiful tables with:
+- **User Profile**: Complete user information with verification status
+- **Organization Memberships**: Table showing all organizations and roles
+- **Global Roles**: Personal account roles and permissions
+- **Export Options**: Save individual user data as JSON or Excel
+- **Terminal Display**: Pretty-formatted tables or JSON output
+
+### Role Management
+Manage user roles directly from the CLI:
+- **List Roles**: View all available roles in your Auth0 tenant with descriptions
+- **Assign Global Roles**: Add roles to users for tenant-wide permissions
+- **Assign Organization Roles**: Add roles to users within specific organizations
+- **Remove Roles**: Remove global or organization-specific roles from users
+- **Bulk Operations**: Combine role management with user queries for efficient workflows
+
+### Export Formats
+- **Excel (.xlsx)**: Structured spreadsheet with auto-adjusted columns
+- **JSON (.json)**: Complete structured data with metadata
+- **Terminal Display**: Rich formatted tables for single users
+
+## 🚀 Rate Limiting & Reliability
+
+The tool includes enterprise-grade reliability features:
+
+- **Automatic Rate Limiting**: Respects Auth0's limits (2 req/sec free, 15 req/sec paid)
+- **Exponential Backoff**: Intelligent retry with jitter to prevent thundering herd
+- **Rate Limit Detection**: Monitors API headers for proactive throttling
+- **Progress Tracking**: Real-time ETA and processing statistics
+- **Configurable Limits**: Automatic detection of subscription type
+
+For large exports (1000+ users), the tool may take time but will complete reliably:
+- Free tenants: ~8-10 minutes per 1000 users
+- Paid tenants: ~1-2 minutes per 1000 users
+
+## 🎨 CLI Features
+
+### Interactive Setup
+- Beautiful welcome banner with ASCII art
+- Step-by-step credential configuration
+- Subscription type detection for optimal rate limits
+- Automatic .env file creation
+
+### Progress Tracking
+- Real-time progress bars with spinners
+- Current user being processed
+- Estimated time remaining
+- Processing statistics
+
+### Export Summary
+- File size and location
+- Processing time and rate limits
+- Option to open Excel file immediately
+- Export statistics table
+
+## 🛠️ Development
+
+### Requirements
+- Python 3.12+
+- uv (recommended) or pip
+
+### Dependencies
+- `auth0-python`: Auth0 Management API client
+- `pandas` + `openpyxl`: Excel export functionality
+- `click`: CLI framework
+- `rich`: Beautiful terminal output
+- `blessings`: Terminal colors and formatting
+
+### Building
 ```bash
-uv run python auth0_export.py
+# Install development dependencies
+uv sync
+
+# Build package
+uv build
+
+# Run tests (if available)
+uv run pytest
 ```
 
-The script will:
-- Connect to your Auth0 tenant using the Management API
-- Fetch all users with their metadata
-- For each user, fetch their organization memberships
-- For each organization membership, fetch the user's roles
-- Export all data to an Excel file with timestamp
+## 📝 License
 
-## Output
+**Commercial License** - Free for individuals, $15/user/month for companies.
 
-The Excel file includes the following information:
-- User details (ID, email, name, etc.)
-- Authentication information (last login, login count, connection type)
-- Email verification and blocked status
-- Organization associations
-- Global roles and organization-specific roles
-- User metadata and app metadata
-- Timestamps (created, updated, last login)
+- **Individual Use**: Free for personal projects and individual use
+- **Commercial Use**: $15 USD per user per month for companies and organizations
+- **Contact**: auth0managementtool@steele.red for commercial licensing
 
-The output file is named: `auth0_users_export_YYYYMMDD_HHMMSS.xlsx`
+See LICENSE file for complete terms and conditions.
 
-## Rate Limiting and Reliability
+## 🤝 Contributing
 
-The script includes built-in rate limiting and retry mechanisms to handle Auth0 API limits:
+1. Fork the repository
+2. Create a feature branch
+3. Make your changes
+4. Add tests if applicable
+5. Submit a pull request
 
-- **Automatic Rate Limiting**: Respects Auth0's rate limits (2 req/sec for free tenants, 15 req/sec for paid)
-- **Exponential Backoff**: Automatically retries failed requests with exponential backoff and jitter
-- **Rate Limit Detection**: Monitors API response headers for rate limit warnings
-- **Configurable Limits**: Set `AUTH0_RATE_LIMIT_PER_SEC` in your `.env` file based on your subscription
+## 🐛 Issues
 
-The script will automatically handle:
-- HTTP 429 (Too Many Requests) errors
-- Network timeouts and transient failures
-- API rate limit exhaustion
+Found a bug or have a feature request? Please open an issue on [GitHub](https://github.com/baocin/auth0-export/issues).
 
-For large exports, the script may take longer due to rate limiting, but it will complete successfully without manual intervention.
+## 🎉 Credits
+
+Built with ❤️ using:
+- [Auth0 Python SDK](https://github.com/auth0/auth0-python)
+- [Rich](https://github.com/Textualize/rich) for beautiful terminal output
+- [Blessings](https://github.com/erikrose/blessings) for terminal formatting
+- [Click](https://click.palletsprojects.com/) for CLI framework
