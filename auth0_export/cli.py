@@ -6,6 +6,7 @@ Beautiful CLI for Auth0 Export tool using blessings and rich for enhanced UX.
 import os
 import sys
 import time
+import platform
 from pathlib import Path
 from typing import Optional, List
 
@@ -34,13 +35,22 @@ except ImportError:
     # Fallback for PyInstaller builds
     from auth0_export.exporter import Auth0Exporter
 
-# Initialize console
-console = Console()
+# Initialize console with Windows-safe settings
+console = Console(
+    force_terminal=True,
+    width=120,
+    legacy_windows=platform.system() == "Windows"
+)
+
+def safe_emoji(emoji: str, fallback: str = "") -> str:
+    """Return emoji on non-Windows systems, fallback text on Windows."""
+    return fallback if platform.system() == "Windows" else emoji
 
 def print_banner():
     """Print a beautiful banner using rich."""
+    rocket = safe_emoji("🚀 ", "")
     banner_panel = Panel(
-        "[bold white]🚀 Auth0 Export Tool[/bold white]\n\n"
+        f"[bold white]{rocket}Auth0 Export Tool[/bold white]\n\n"
         "Export Auth0 users, organizations, and roles to Excel/JSON",
         title="",
         border_style="cyan",
@@ -51,23 +61,26 @@ def print_banner():
 def check_credentials(env_file_path: Optional[str] = None) -> dict:
     """Check and get Auth0 credentials, prompting if needed."""
     # Determine .env file path
+    search_icon = safe_emoji("🔍 ", "")
     if env_file_path:
         env_file = Path(env_file_path)
-        console.print(f"🔍 Looking for credentials in: {env_file.absolute()}")
+        console.print(f"{search_icon}Looking for credentials in: {env_file.absolute()}")
     else:
         env_file = Path('.env')
-        console.print(f"🔍 Looking for credentials in: {env_file.absolute()}")
+        console.print(f"{search_icon}Looking for credentials in: {env_file.absolute()}")
     
     # Load .env file
     from dotenv import load_dotenv
+    checkmark = safe_emoji("✅ ", "")
     if env_file_path and env_file.exists():
         load_dotenv(env_file_path)
-        console.print(f"✅ Loaded credentials from: {env_file_path}")
+        console.print(f"{checkmark}Loaded credentials from: {env_file_path}")
     elif env_file.exists():
         load_dotenv(env_file)
-        console.print(f"✅ Loaded credentials from: {env_file.absolute()}")
+        console.print(f"{checkmark}Loaded credentials from: {env_file.absolute()}")
     elif env_file_path:
-        console.print(f"❌ [red]Custom .env file not found: {env_file.absolute()}[/red]")
+        x_mark = safe_emoji("❌ ", "")
+        console.print(f"{x_mark}[red]Custom .env file not found: {env_file.absolute()}[/red]")
         sys.exit(1)
     
     credentials = {

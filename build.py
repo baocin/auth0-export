@@ -114,28 +114,36 @@ exe = EXE(
     print(f"Created spec file for {exe_name}")
     return exe_name
 
+def safe_print(message: str) -> None:
+    """Print message with Windows-safe emoji handling."""
+    if platform.system() == "Windows":
+        # Remove emojis for Windows
+        import re
+        message = re.sub(r'[^\x00-\x7f]', '', message).strip()
+    print(message)
+
 def main():
     """Main build function."""
-    print("🔨 Building Auth0 Export standalone executable...")
+    safe_print("🔨 Building Auth0 Export standalone executable...")
     
     # Check if we're in the right directory
     if not Path('auth0_export').exists():
-        print("❌ Error: Please run this script from the project root directory")
+        safe_print("❌ Error: Please run this script from the project root directory")
         sys.exit(1)
     
     # Install build dependencies
-    print("📦 Installing build dependencies...")
+    safe_print("📦 Installing build dependencies...")
     run_command("uv sync --group build")
     
     # Create spec file
     exe_name = create_spec_file()
     
     # Build executable
-    print("🏗️  Building executable with PyInstaller...")
+    safe_print("🏗️  Building executable with PyInstaller...")
     run_command("uv run pyinstaller auth0-export.spec --clean --noconfirm")
     
     # Test executable
-    print("🧪 Testing executable...")
+    safe_print("🧪 Testing executable...")
     exe_path = Path('dist') / exe_name
     
     if platform.system() != "Windows":
@@ -147,14 +155,14 @@ def main():
     try:
         result = subprocess.run(test_cmd, shell=True, capture_output=True, text=True, timeout=30)
         if result.returncode == 0:
-            print("✅ Executable test passed!")
+            safe_print("✅ Executable test passed!")
         else:
-            print(f"⚠️  Executable test failed: {result.stderr}")
+            safe_print(f"⚠️  Executable test failed: {result.stderr}")
     except subprocess.TimeoutExpired:
-        print("⚠️  Executable test timed out")
+        safe_print("⚠️  Executable test timed out")
     
     # Create archive
-    print("📦 Creating distribution archive...")
+    safe_print("📦 Creating distribution archive...")
     system = platform.system().lower()
     
     if system == "windows":
@@ -168,10 +176,10 @@ def main():
         with tarfile.open(f"dist/{archive_name}", "w:gz") as tar:
             tar.add(exe_path, arcname=exe_name)
     
-    print(f"✅ Build completed successfully!")
-    print(f"📁 Executable: dist/{exe_name}")
-    print(f"📦 Archive: dist/{archive_name}")
-    print(f"💡 Test with: ./dist/{exe_name} --help")
+    safe_print("✅ Build completed successfully!")
+    safe_print(f"📁 Executable: dist/{exe_name}")
+    safe_print(f"📦 Archive: dist/{archive_name}")
+    safe_print(f"💡 Test with: ./dist/{exe_name} --help")
 
 if __name__ == "__main__":
     main()
