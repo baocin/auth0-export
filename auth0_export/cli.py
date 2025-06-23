@@ -310,17 +310,24 @@ def display_user_table(user_data: dict):
         
         console.print(orgs_table)
     else:
-        console.print("\n🏢 [bold green]Organizations:[/bold green] [dim]None[/dim]")
+        building_icon = safe_emoji("🏢 ", "")
+        console.print(f"\n{building_icon}[bold green]Organizations:[/bold green] [dim]None[/dim]")
     
     # Summary
-    summary_table = Table(title="📈 Summary", show_header=True, header_style="bold magenta")
+    chart_icon = safe_emoji("📈 ", "")
+    summary_table = Table(title=f"{chart_icon}Summary", show_header=True, header_style="bold magenta")
     summary_table.add_column("Metric", style="magenta")
     summary_table.add_column("Count", style="white")
     
-    summary_table.add_row("🏢 Organizations", str(metadata['total_organizations']))
-    summary_table.add_row("🎭 Global Roles", str(metadata['total_global_roles']))
-    summary_table.add_row("🎯 Org Roles", str(metadata['total_org_roles']))
-    summary_table.add_row("📅 Export Time", metadata['export_timestamp'])
+    building_icon = safe_emoji("🏢 ", "")
+    masks_icon = safe_emoji("🎭 ", "")
+    target_icon = safe_emoji("🎯 ", "")
+    calendar_icon = safe_emoji("📅 ", "")
+    
+    summary_table.add_row(f"{building_icon}Organizations", str(metadata['total_organizations']))
+    summary_table.add_row(f"{masks_icon}Global Roles", str(metadata['total_global_roles']))
+    summary_table.add_row(f"{target_icon}Org Roles", str(metadata['total_org_roles']))
+    summary_table.add_row(f"{calendar_icon}Export Time", metadata['export_timestamp'])
     
     console.print(summary_table)
 
@@ -355,7 +362,7 @@ def main(output: Optional[str], rate_limit: Optional[int], setup: bool, quiet: b
          assign_to_org: bool, remove_from_org: bool, users_file: Optional[str],
          org_id: Optional[str], list_roles: bool, list_orgs: bool, debug_org_roles: Optional[str], debug_api_methods: bool, yes: bool):
     """
-    🚀 Export Auth0 users, organizations, and roles to Excel/JSON.
+    Export Auth0 users, organizations, and roles to Excel/JSON.
     
     This tool exports all users from your Auth0 tenant including:
     • User profiles and metadata
